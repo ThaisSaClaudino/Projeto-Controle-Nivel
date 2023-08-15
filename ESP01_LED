@@ -1,0 +1,106 @@
+#include <esp_now.h>
+#include <Wire.h>
+#include <WiFi.h>
+
+const uint8_t led1 = 26;
+const uint8_t led2 = 25;
+
+uint8_t macAddress1Esp32[] = {0x7c, 0x9e, 0xbd, 0xed, 0x4c, 0x80};
+
+struct DataStruct {
+  int value;
+  int sensor1on;
+  int sensor2on;
+};
+
+DataStruct dataSend;
+DataStruct dataRecv;
+
+bool recvJaExecutado = false;
+
+esp_now_peer_info_t peerInfo;
+
+unsigned long temporizadorUltimaRecepcao = 0;
+
+void setup() {
+  Wire.begin();
+  pinMode(led1, OUTPUT);
+  //pinMode(led2, OUTPUT);
+
+  WiFi.disconnect();
+  WiFi.mode(WIFI_STA);
+
+  if (esp_now_init() != ESP_OK) {
+    Serial.println("Erro na inicializacao do ESP-NOW");
+    ESP.restart();
+  }
+
+  esp_now_register_send_cb(OnDataSent);
+  esp_now_register_recv_cb(OnDataRecv);
+
+  memcpy(peerInfo.peer_addr, macAddress1Esp32, 6);
+  peerInfo.channel = 0;
+  peerInfo.encrypt = false;
+
+  if (esp_now_add_peer(&peerInfo) != ESP_OK) {
+    Serial.println("Falha ao adicionar peer");
+    ESP.restart();
+  }
+
+  temporizadorUltimaRecepcao = millis();
+  Serial.begin(115200);
+}
+
+void loop() {
+  if (dataRecv.sensor1on == 1) {
+    digitalWrite(led1, HIGH);
+    //Serial.println("Sensor 1 ligado");
+  } else {
+    digitalWrite(led1, LOW);
+    //Serial.println("Sensor 1 desligado");
+  }
+
+  /*if (dataRecv.sensor2on == 1) {
+    digitalWrite(led2, HIGH);
+    Serial.println("Sensor 2 ligado");
+  } else {
+    digitalWrite(led2, LOW);
+    Serial.println("Sensor 2 desligado");
+  }*/
+
+  esp_now_send(macAddress1Esp32, (uint8_t *)&dataSend, sizeof(DataStruct));
+
+  if (millis() - temporizadorUltimaRecepcao > 2000) {
+    Serial.println("Falha na recepcao");
+  } /*else {
+    if (recvJaExecutado) {
+     // Serial.print("Recebido: ");
+      //Serial.println(dataRecv.value);
+    }
+  }*/
+
+  static int valuePrevious;
+
+  if (dataSend.value != valuePrevious) {
+    //Serial.print("Enviado: ");
+    //Serial.println(dataSend.value);
+    valuePrevious = dataSend.value;
+  }
+
+  delay(1000);
+}
+
+void OnDataSent(const uint8_t *mac_addr, esp_now_send_status_t status) {
+  if (status == ESP_NOW_SEND_SUCCESS) {
+    dataSend.value--;
+    if (dataSend.value < 0) {
+      dataSend.value = 10;
+    }
+  }
+}
+
+void OnDataRecv(const uint8_t *mac, const uint8_t *incomingData, int len) {
+  memcpy(&dataRecv, incomingData, sizeof(dataRecv));
+  recvJaExecutado = true;
+  temporizadorUltimaRecepcao = millis();
+}
